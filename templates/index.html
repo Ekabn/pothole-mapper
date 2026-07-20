@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pothole Mapper</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; display: flex; height: 100vh; background: #1a1a2e; color: #eee; }
+
+        /* Sidebar */
+        #sidebar {
+            width: 280px; min-width: 280px; background: #16213e;
+            display: flex; flex-direction: column; border-right: 1px solid #0f3460;
+        }
+        #sidebar h1 { padding: 20px; font-size: 18px; color: #e94560; border-bottom: 1px solid #0f3460; }
+        #upload-section { padding: 15px; border-bottom: 1px solid #0f3460; }
+        #upload-section input, #upload-section select {
+            width: 100%; padding: 8px; margin-bottom: 8px;
+            background: #0f3460; border: 1px solid #e94560; border-radius: 4px; color: #eee;
+        }
+        #upload-section button {
+            width: 100%; padding: 10px; background: #e94560;
+            border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;
+        }
+        #upload-section button:hover { background: #c73652; }
+        #progress-bar { display: none; margin-top: 8px; }
+        #progress-bar div { height: 6px; background: #e94560; border-radius: 3px; transition: width 0.3s; }
+        #progress-text { font-size: 12px; margin-top: 4px; color: #aaa; }
+        #sessions-list { flex: 1; overflow-y: auto; padding: 10px; }
+        #sessions-list h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; }
+        .session-item {
+            padding: 10px; margin-bottom: 8px; background: #0f3460;
+            border-radius: 6px; cursor: pointer; border: 1px solid transparent;
+        }
+        .session-item:hover, .session-item.active { border-color: #e94560; }
+        .session-item .name { font-size: 14px; font-weight: bold; }
+        .session-item .meta { font-size: 12px; color: #aaa; margin-top: 3px; }
+
+        /* Main content */
+        #main { flex: 1; display: flex; flex-direction: column; }
+        #map { flex: 1; }
+        #summary-bar {
+            background: #16213e; padding: 12px 20px;
+            border-top: 1px solid #0f3460; display: flex; gap: 20px; flex-wrap: wrap;
+        }
+        .summary-item { font-size: 13px; }
+        .summary-item span { color: #e94560; font-weight: bold; }
+        #no-session {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            font-size: 18px; color: #aaa;
+        }
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <h1>🕳️ Pothole Mapper</h1>
+
+    <div id="upload-section">
+        <input type="text" id="video-name" placeholder="Session name (e.g. Central UB)">
+        <input type="file" id="video-file" accept="video/*">
+        <input type="text" id="manual-lat" placeholder="Lat (optional, if no GPS)">
+        <input type="text" id="manual-lon" placeholder="Lon (optional, if no GPS)">
+        <button onclick="uploadVideo()">⬆ Upload & Process</button>
+        <div id="progress-bar"><div id="progress-fill" style="width:0%"></div></div>
+        <div id="progress-text"></div>
+    </div>
+
+    <div id="sessions-list">
+        <h3>PAST SESSIONS</h3>
+        <div id="sessions"></div>
+    </div>
+</div>
+
+<div id="main">
+    <div id="no-session">Upload a video to get started</div>
+    <div id="map" style="display:none;"></div>
+    <div id="summary-bar" style="display:none;"></div>
+</div>
+
+<script>
+let map = null;
+let markers = [];
+let activeJobId = null;
+
+// Load past sessions on startup
+async function loadSessions() {
+    const res = await fetch('/sessions');
+    const sessions = await res.json();
+    const container = document.getElementById('sessions');
+    container.innerHTML = '';
+    if (sessions.length === 0) {
+        container.innerHTML = '<div style="color:#aaa;font-size:12px;">No sessions yet</div>';
+        return;
+    }
+    sessions.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'session-item';
+        div.id = `session-${s.job_id}`;
+        div.innerHTML = `
+            <div class="name">${s.video_name}</div>
+            <div class="meta">🕳️ ${s.pothole_count} potholes</div>
+        `;
+        div.onclick = () => loadResult(s.job_id, div);
+        container.appendChild(div);
+    });
+}
+
+async function uploadVideo() {
+    const file = document.getElementById('video-file').files[0];
+    const name = document.getElementById('video-name').value || file?.name || 'Untitled';
+    const lat = document.getElementById('manual-lat').value;
+    const lon = document.getElementById('manual-lon').value;
+
+    if (!file) { alert('Please select a video file'); return; }
+
+    const formData = new FormData();
+    formData.append('video', file);
+    formData.append('name', name);
+    formData.append('lat', lat);
+    formData.append('lon', lon);
+
+    document.getElementById('progress-bar').style.display = 'block';
+    document.getElementById('progress-text').textContent = 'Uploading...';
+
+    const res = await fetch('/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+
+    pollStatus(data.job_id);
+}
+
+async function pollStatus(jobId) {
+    const interval = setInterval(async () => {
+        const res = await fetch(`/status/${jobId}`);
+        const data = await res.json();
+
+        document.getElementById('progress-fill').style.width = data.progress + '%';
+        document.getElementById('progress-text').textContent = `Processing... ${data.progress}%`;
+
+        if (data.status === 'done') {
+            clearInterval(interval);
+            document.getElementById('progress-text').textContent = 'Done!';
+            await loadSessions();
+            const item = document.getElementById(`session-${jobId}`);
+            await loadResult(jobId, item);
+        }
+    }, 2000);
+}
+
+async function loadResult(jobId, element) {
+    // Mark active
+    document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+    if (element) element.classList.add('active');
+
+    const res = await fetch(`/result/${jobId}`);
+    const data = await res.json();
+
+    // Show map
+    document.getElementById('no-session').style.display = 'none';
+    document.getElementById('map').style.display = 'block';
+    document.getElementById('summary-bar').style.display = 'flex';
+
+    // Init map
+    if (!map) {
+        map = L.map('map').setView([47.9, 106.9], 13);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '© OpenStreetMap © CartoDB'
+        }).addTo(map);
+    }
+
+    // Clear old markers
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+
+    // Add pothole markers
+    const potholes = data.detections.filter(d => d.class === 'pothole' && d.lat && d.lon);
+    potholes.forEach(d => {
+        const icon = L.divIcon({
+            html: '🕳️',
+            className: '',
+            iconSize: [24, 24],
+        });
+        const marker = L.marker([d.lat, d.lon], { icon })
+            .addTo(map)
+            .bindPopup(`
+                <b>🕳️ Pothole</b><br>
+                Confidence: ${d.confidence}<br>
+                Time: ${d.timestamp_s}s<br>
+                GPS: ${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}<br>
+                ${d.image ? `<img src="data:image/jpeg;base64,${d.image}" width="200" style="margin-top:6px">` : ''}
+            `, { maxWidth: 250 });
+        markers.push(marker);
+    });
+
+    if (potholes.length > 0) {
+        map.setView([potholes[0].lat, potholes[0].lon], 15);
+    }
+
+    // Summary bar
+    const icons = { pothole:'🕳️', car:'🚗', person:'🚶', motorcycle:'🏍️', bus:'🚌', truck:'🚛', bicycle:'🚲' };
+    const summary = data.summary;
+    const bar = document.getElementById('summary-bar');
+    bar.innerHTML = Object.entries(summary).map(([cls, count]) =>
+        `<div class="summary-item">${icons[cls]||'📍'} ${cls.charAt(0).toUpperCase()+cls.slice(1)}: <span>${count}</span></div>`
+    ).join('');
+}
+
+loadSessions();
+</script>
+</body>
+</html>
