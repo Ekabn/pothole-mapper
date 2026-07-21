@@ -26,10 +26,18 @@ ROAD_CROP_TOP = 0.40
 ROAD_CROP_BOTTOM = 0.90
 GENERAL_CLASSES = {"person", "car", "motorcycle", "bus", "truck", "bicycle"}
 
-general_model = YOLO("yolov8n.pt")
-pothole_model = YOLO("pothole_best_gpu.pt")
+general_model = None
+pothole_model = None
 
 jobs = {}
+
+def get_models():
+    global general_model, pothole_model
+    if general_model is None:
+        general_model = YOLO("yolov8n.pt")
+    if pothole_model is None:
+        pothole_model = YOLO("pothole_best_gpu.pt")
+    return general_model, pothole_model
 
 def haversine_m(lat1, lon1, lat2, lon2):
     R = 6371000
@@ -53,6 +61,8 @@ def process_video(job_id, video_path, video_name, manual_location, user_id):
     os.makedirs(result_dir, exist_ok=True)
     images_dir = os.path.join(result_dir, 'pothole_images')
     os.makedirs(images_dir, exist_ok=True)
+
+    general_model, pothole_model = get_models()
 
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
