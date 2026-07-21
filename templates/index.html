@@ -8,92 +8,177 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; display: flex; height: 100vh; background: #1a1a2e; color: #eee; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+
+        /* Top navbar */
+        #navbar {
+            background: #16213e; padding: 12px 16px;
+            border-bottom: 2px solid #e94560;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-shrink: 0;
+        }
+        #navbar h1 { font-size: 18px; color: #e94560; }
+        #upload-btn {
+            background: #e94560; color: white; border: none;
+            padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px;
+        }
+
+        /* Main layout */
+        #content { display: flex; flex: 1; overflow: hidden; }
 
         /* Sidebar */
         #sidebar {
-            width: 280px; min-width: 280px; background: #16213e;
-            display: flex; flex-direction: column; border-right: 1px solid #0f3460;
+            width: 260px; min-width: 260px; background: #16213e;
+            display: flex; flex-direction: column;
+            border-right: 1px solid #0f3460; overflow-y: auto;
         }
-        #sidebar h1 { padding: 20px; font-size: 18px; color: #e94560; border-bottom: 1px solid #0f3460; }
-        #upload-section { padding: 15px; border-bottom: 1px solid #0f3460; }
-        #upload-section input, #upload-section select {
-            width: 100%; padding: 8px; margin-bottom: 8px;
-            background: #0f3460; border: 1px solid #e94560; border-radius: 4px; color: #eee;
-        }
-        #upload-section button {
-            width: 100%; padding: 10px; background: #e94560;
-            border: none; border-radius: 4px; color: white; cursor: pointer; font-size: 14px;
-        }
-        #upload-section button:hover { background: #c73652; }
-        #progress-bar { display: none; margin-top: 8px; }
-        #progress-bar div { height: 6px; background: #e94560; border-radius: 3px; transition: width 0.3s; }
-        #progress-text { font-size: 12px; margin-top: 4px; color: #aaa; }
-        #sessions-list { flex: 1; overflow-y: auto; padding: 10px; }
-        #sessions-list h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; }
+        #sessions-header { padding: 12px 16px; font-size: 12px; color: #aaa; border-bottom: 1px solid #0f3460; }
         .session-item {
-            padding: 10px; margin-bottom: 8px; background: #0f3460;
-            border-radius: 6px; cursor: pointer; border: 1px solid transparent;
+            padding: 12px 16px; border-bottom: 1px solid #0f3460;
+            cursor: pointer;
         }
-        .session-item:hover, .session-item.active { border-color: #e94560; }
-        .session-item .name { font-size: 14px; font-weight: bold; }
+        .session-item:hover, .session-item.active { background: #0f3460; border-left: 3px solid #e94560; }
+        .session-item .name { font-size: 14px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .session-item .meta { font-size: 12px; color: #aaa; margin-top: 3px; }
 
-        /* Main content */
-        #main { flex: 1; display: flex; flex-direction: column; }
+        /* Map area */
+        #map-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         #map { flex: 1; }
+        #no-session { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 16px; flex-direction: column; gap: 10px; }
+        #no-session span { font-size: 40px; }
+
+        /* Summary bar */
         #summary-bar {
-            background: #16213e; padding: 12px 20px;
-            border-top: 1px solid #0f3460; display: flex; gap: 20px; flex-wrap: wrap;
+            background: #16213e; padding: 10px 16px;
+            border-top: 1px solid #0f3460;
+            display: flex; gap: 16px; flex-wrap: wrap; flex-shrink: 0;
         }
         .summary-item { font-size: 13px; }
-        .summary-item span { color: #e94560; font-weight: bold; }
-        #no-session {
-            flex: 1; display: flex; align-items: center; justify-content: center;
-            font-size: 18px; color: #aaa;
+        .summary-item b { color: #e94560; }
+
+        /* Upload modal */
+        #modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 1000;
+            align-items: center; justify-content: center;
+        }
+        #modal-overlay.show { display: flex; }
+        #modal {
+            background: #16213e; border-radius: 12px; padding: 24px;
+            width: 90%; max-width: 420px; border: 1px solid #0f3460;
+        }
+        #modal h2 { margin-bottom: 16px; color: #e94560; }
+        #modal input, #modal label {
+            display: block; width: 100%; margin-bottom: 12px;
+        }
+        #modal input {
+            padding: 10px; background: #0f3460; border: 1px solid #e94560;
+            border-radius: 6px; color: #eee; font-size: 14px;
+        }
+        #modal label { font-size: 12px; color: #aaa; margin-bottom: 4px; }
+        .modal-row { display: flex; gap: 8px; }
+        .modal-row input { flex: 1; }
+        #modal-btns { display: flex; gap: 8px; margin-top: 8px; }
+        #modal-btns button {
+            flex: 1; padding: 10px; border: none; border-radius: 6px;
+            cursor: pointer; font-size: 14px;
+        }
+        #btn-submit { background: #e94560; color: white; }
+        #btn-cancel { background: #0f3460; color: #eee; }
+        #progress-wrap { margin-top: 12px; display: none; }
+        #progress-bar { height: 6px; background: #0f3460; border-radius: 3px; margin-top: 6px; }
+        #progress-fill { height: 100%; background: #e94560; border-radius: 3px; transition: width 0.3s; width: 0%; }
+        #progress-text { font-size: 12px; color: #aaa; margin-top: 4px; }
+
+        /* Mobile styles */
+        @media (max-width: 600px) {
+            #content { flex-direction: column; }
+            #sidebar { width: 100%; min-width: unset; max-height: 200px; border-right: none; border-bottom: 1px solid #0f3460; }
+            #summary-bar { gap: 10px; padding: 8px 12px; }
+            .summary-item { font-size: 12px; }
+            #navbar h1 { font-size: 15px; }
         }
     </style>
 </head>
 <body>
 
-<div id="sidebar">
+<div id="navbar">
     <h1>🕳️ Pothole Mapper</h1>
+    <button id="upload-btn" onclick="showModal()">+ New Video</button>
+</div>
 
-    <div id="upload-section">
-        <input type="text" id="video-name" placeholder="Session name (e.g. Central UB)">
-        <input type="file" id="video-file" accept="video/*">
-        <input type="text" id="manual-lat" placeholder="Lat (optional, if no GPS)">
-        <input type="text" id="manual-lon" placeholder="Lon (optional, if no GPS)">
-        <button onclick="uploadVideo()">⬆ Upload & Process</button>
-        <div id="progress-bar"><div id="progress-fill" style="width:0%"></div></div>
-        <div id="progress-text"></div>
+<div id="content">
+    <div id="sidebar">
+        <div id="sessions-header">YOUR SESSIONS</div>
+        <div id="sessions-list"></div>
     </div>
 
-    <div id="sessions-list">
-        <h3>PAST SESSIONS</h3>
-        <div id="sessions"></div>
+    <div id="map-area">
+        <div id="no-session">
+            <span>🗺️</span>
+            Upload a dashcam video to get started
+        </div>
+        <div id="map" style="display:none;"></div>
+        <div id="summary-bar" style="display:none;"></div>
     </div>
 </div>
 
-<div id="main">
-    <div id="no-session">Upload a video to get started</div>
-    <div id="map" style="display:none;"></div>
-    <div id="summary-bar" style="display:none;"></div>
+<!-- Upload Modal -->
+<div id="modal-overlay">
+    <div id="modal">
+        <h2>Upload Video</h2>
+        <label>Session name</label>
+        <input type="text" id="video-name" placeholder="e.g. Central UB - Monday">
+        <label>Video file</label>
+        <input type="file" id="video-file" accept="video/*">
+        <label>Manual GPS (optional — if no GPS overlay in video)</label>
+        <div class="modal-row">
+            <input type="text" id="manual-lat" placeholder="Latitude">
+            <input type="text" id="manual-lon" placeholder="Longitude">
+        </div>
+        <div id="progress-wrap">
+            <div id="progress-bar"><div id="progress-fill"></div></div>
+            <div id="progress-text">Processing...</div>
+        </div>
+        <div id="modal-btns">
+            <button id="btn-cancel" onclick="hideModal()">Cancel</button>
+            <button id="btn-submit" onclick="uploadVideo()">Upload & Process</button>
+        </div>
+    </div>
 </div>
 
 <script>
 let map = null;
 let markers = [];
-let activeJobId = null;
 
-// Load past sessions on startup
+// Get or create a unique session ID for this browser
+function getSessionId() {
+    let sid = localStorage.getItem('pothole_session_id');
+    if (!sid) {
+        sid = 'user_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('pothole_session_id', sid);
+    }
+    return sid;
+}
+
+function showModal() {
+    document.getElementById('modal-overlay').classList.add('show');
+}
+function hideModal() {
+    document.getElementById('modal-overlay').classList.remove('show');
+    document.getElementById('progress-wrap').style.display = 'none';
+    document.getElementById('progress-fill').style.width = '0%';
+    document.getElementById('modal-btns').style.display = 'flex';
+}
+
 async function loadSessions() {
-    const res = await fetch('/sessions');
+    const sid = getSessionId();
+    const res = await fetch(`/sessions?user_id=${sid}`);
     const sessions = await res.json();
-    const container = document.getElementById('sessions');
+    const container = document.getElementById('sessions-list');
     container.innerHTML = '';
     if (sessions.length === 0) {
-        container.innerHTML = '<div style="color:#aaa;font-size:12px;">No sessions yet</div>';
+        container.innerHTML = '<div style="padding:16px;color:#aaa;font-size:13px;">No sessions yet</div>';
         return;
     }
     sessions.forEach(s => {
@@ -114,6 +199,7 @@ async function uploadVideo() {
     const name = document.getElementById('video-name').value || file?.name || 'Untitled';
     const lat = document.getElementById('manual-lat').value;
     const lon = document.getElementById('manual-lon').value;
+    const sid = getSessionId();
 
     if (!file) { alert('Please select a video file'); return; }
 
@@ -122,13 +208,15 @@ async function uploadVideo() {
     formData.append('name', name);
     formData.append('lat', lat);
     formData.append('lon', lon);
+    formData.append('user_id', sid);
 
-    document.getElementById('progress-bar').style.display = 'block';
+    document.getElementById('progress-wrap').style.display = 'block';
+    document.getElementById('modal-btns').style.display = 'none';
     document.getElementById('progress-text').textContent = 'Uploading...';
 
     const res = await fetch('/upload', { method: 'POST', body: formData });
     const data = await res.json();
-    if (data.error) { alert(data.error); return; }
+    if (data.error) { alert(data.error); hideModal(); return; }
 
     pollStatus(data.job_id);
 }
@@ -143,28 +231,30 @@ async function pollStatus(jobId) {
 
         if (data.status === 'done') {
             clearInterval(interval);
-            document.getElementById('progress-text').textContent = 'Done!';
+            hideModal();
             await loadSessions();
             const item = document.getElementById(`session-${jobId}`);
             await loadResult(jobId, item);
+        }
+        if (data.status === 'error') {
+            clearInterval(interval);
+            alert('Processing failed. Please try again.');
+            hideModal();
         }
     }, 2000);
 }
 
 async function loadResult(jobId, element) {
-    // Mark active
     document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
     if (element) element.classList.add('active');
 
     const res = await fetch(`/result/${jobId}`);
     const data = await res.json();
 
-    // Show map
     document.getElementById('no-session').style.display = 'none';
     document.getElementById('map').style.display = 'block';
     document.getElementById('summary-bar').style.display = 'flex';
 
-    // Init map
     if (!map) {
         map = L.map('map').setView([47.9, 106.9], 13);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -172,26 +262,19 @@ async function loadResult(jobId, element) {
         }).addTo(map);
     }
 
-    // Clear old markers
     markers.forEach(m => map.removeLayer(m));
     markers = [];
 
-    // Add pothole markers
     const potholes = data.detections.filter(d => d.class === 'pothole' && d.lat && d.lon);
     potholes.forEach(d => {
-        const icon = L.divIcon({
-            html: '🕳️',
-            className: '',
-            iconSize: [24, 24],
-        });
+        const icon = L.divIcon({ html: '🕳️', className: '', iconSize: [24, 24] });
         const marker = L.marker([d.lat, d.lon], { icon })
             .addTo(map)
             .bindPopup(`
                 <b>🕳️ Pothole</b><br>
-                Confidence: ${d.confidence}<br>
+                Confidence: ${Math.round(d.confidence * 100)}%<br>
                 Time: ${d.timestamp_s}s<br>
-                GPS: ${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}<br>
-                ${d.image ? `<img src="data:image/jpeg;base64,${d.image}" width="200" style="margin-top:6px">` : ''}
+                ${d.image ? `<img src="data:image/jpeg;base64,${d.image}" width="200" style="margin-top:6px;border-radius:4px;">` : ''}
             `, { maxWidth: 250 });
         markers.push(marker);
     });
@@ -200,12 +283,10 @@ async function loadResult(jobId, element) {
         map.setView([potholes[0].lat, potholes[0].lon], 15);
     }
 
-    // Summary bar
     const icons = { pothole:'🕳️', car:'🚗', person:'🚶', motorcycle:'🏍️', bus:'🚌', truck:'🚛', bicycle:'🚲' };
-    const summary = data.summary;
     const bar = document.getElementById('summary-bar');
-    bar.innerHTML = Object.entries(summary).map(([cls, count]) =>
-        `<div class="summary-item">${icons[cls]||'📍'} ${cls.charAt(0).toUpperCase()+cls.slice(1)}: <span>${count}</span></div>`
+    bar.innerHTML = Object.entries(data.summary).map(([cls, count]) =>
+        `<div class="summary-item">${icons[cls]||'📍'} ${cls.charAt(0).toUpperCase()+cls.slice(1)}: <b>${count}</b></div>`
     ).join('');
 }
 

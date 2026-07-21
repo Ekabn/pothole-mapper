@@ -1,8 +1,9 @@
+cat > ~/pothole-mapper/app.py << 'ENDOFFILE'
 import os
 import json
 import uuid
 import threading
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
 import cv2
 from ultralytics import YOLO
@@ -14,7 +15,7 @@ import base64
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['RESULTS_FOLDER'] = 'results'
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['RESULTS_FOLDER'], exist_ok=True)
@@ -29,7 +30,7 @@ GENERAL_CLASSES = {"person", "car", "motorcycle", "bus", "truck", "bicycle"}
 general_model = YOLO("yolov8n.pt")
 pothole_model = YOLO("pothole_best_gpu.pt")
 
-jobs = {}  # job_id -> status/results
+jobs = {}
 
 def haversine_m(lat1, lon1, lat2, lon2):
     R = 6371000
@@ -47,7 +48,7 @@ def is_duplicate(gps, logged_list):
             return True
     return False
 
-def process_video(job_id, video_path, video_name, manual_location):
+def process_video(job_id, video_path, video_name, manual_location, user_id):
     jobs[job_id]['status'] = 'processing'
     result_dir = os.path.join(app.config['RESULTS_FOLDER'], job_id)
     os.makedirs(result_dir, exist_ok=True)
@@ -69,7 +70,6 @@ def process_video(job_id, video_path, video_name, manual_location):
         ret, frame = cap.read()
         if not ret:
             break
-
         if frame_idx % FRAME_SKIP != 0:
             frame_idx += 1
             continue
@@ -82,7 +82,6 @@ def process_video(job_id, video_path, video_name, manual_location):
         if gps is None:
             gps = last_good_gps
         else:
-            # UB bounding box filter
             if 47.5 <= gps[0] <= 48.5 and 106.0 <= gps[1] <= 108.0:
                 last_good_gps = gps
             else:
@@ -90,7 +89,6 @@ def process_video(job_id, video_path, video_name, manual_location):
 
         h, w = frame.shape[:2]
 
-        # General detection
         gen_results = general_model.predict(frame, verbose=False, conf=CONFIDENCE_THRESHOLD)[0]
         for box in gen_results.boxes:
             cls_name = general_model.names[int(box.cls[0])]
@@ -111,7 +109,6 @@ def process_video(job_id, video_path, video_name, manual_location):
                 "image": None,
             })
 
-        # Pothole detection
         road_crop = frame[int(h*ROAD_CROP_TOP):int(h*ROAD_CROP_BOTTOM), :]
         pot_results = pothole_model.predict(road_crop, verbose=False, conf=CONFIDENCE_THRESHOLD)[0]
         for box in pot_results.boxes:
@@ -131,7 +128,6 @@ def process_video(job_id, video_path, video_name, manual_location):
             img_path = os.path.join(images_dir, img_filename)
             cv2.imwrite(img_path, crop_img)
 
-            # Encode image as base64 for JSON storage
             with open(img_path, "rb") as f:
                 img_b64 = base64.b64encode(f.read()).decode()
 
@@ -155,6 +151,7 @@ def process_video(job_id, video_path, video_name, manual_location):
     result = {
         "job_id": job_id,
         "video_name": video_name,
+        "user_id": user_id,
         "summary": summary,
         "detections": detections,
     }
@@ -175,6 +172,7 @@ def upload():
     manual_lat = request.form.get("lat", "")
     manual_lon = request.form.get("lon", "")
     video_name = request.form.get("name", file.filename if file else "Untitled")
+    user_id = request.form.get("user_id", "anonymous")
 
     if not file:
         return jsonify({"error": "No file uploaded"}), 400
@@ -192,7 +190,7 @@ def upload():
             pass
 
     jobs[job_id] = {"status": "queued", "progress": 0}
-    thread = threading.Thread(target=process_video, args=(job_id, video_path, video_name, manual_location))
+    thread = threading.Thread(target=process_video, args=(job_id, video_path, video_name, manual_location, user_id))
     thread.daemon = True
     thread.start()
 
@@ -215,18 +213,21 @@ def result(job_id):
 
 @app.route("/sessions")
 def sessions():
+    user_id = request.args.get('user_id', 'anonymous')
     sessions_list = []
     for job_id in os.listdir(app.config['RESULTS_FOLDER']):
         result_path = os.path.join(app.config['RESULTS_FOLDER'], job_id, "result.json")
         if os.path.exists(result_path):
             with open(result_path) as f:
                 data = json.load(f)
-                sessions_list.append({
-                    "job_id": job_id,
-                    "video_name": data.get("video_name", "Untitled"),
-                    "pothole_count": data.get("summary", {}).get("pothole", 0),
-                })
+                if data.get('user_id') == user_id:
+                    sessions_list.append({
+                        "job_id": job_id,
+                        "video_name": data.get("video_name", "Untitled"),
+                        "pothole_count": data.get("summary", {}).get("pothole", 0),
+                    })
     return jsonify(sessions_list)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+ENDOFFILE
