@@ -36,7 +36,7 @@ def get_models():
     if general_model is None:
         general_model = YOLO("yolov8n.pt")
     if pothole_model is None:
-        pothole_model = YOLO("pothole_best_gpu.pt")
+        pothole_model = YOLO("pothole_v2.pt")
     return general_model, pothole_model
 
 def haversine_m(lat1, lon1, lat2, lon2):
